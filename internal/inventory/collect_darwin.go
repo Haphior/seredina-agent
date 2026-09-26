@@ -198,7 +198,11 @@ func macUsers(d *Details) {
 		d.Users.LastLogon = out
 	}
 	if out, ok := sysinfo.Run("dscl", ".", "-read", "/Groups/admin", "GroupMembership"); ok {
-		d.Users.LocalAdmins = strings.Fields(strings.TrimPrefix(out, "GroupMembership:"))
+		for _, u := range strings.Fields(strings.TrimPrefix(out, "GroupMembership:")) {
+			if !strings.HasPrefix(u, "_") { // _mbsetupuser and other system accounts
+				d.Users.LocalAdmins = append(d.Users.LocalAdmins, u)
+			}
+		}
 	}
 	if out, ok := sysinfo.Run("dscl", ".", "-list", "/Users", "UniqueID"); ok {
 		for _, line := range sysinfo.Lines(out) {

@@ -37,6 +37,8 @@ jobs:
       # like the service does, so reviewers can see every collector's output.
       - name: Full inventory of this runner
         shell: bash
+        env:
+          PYTHONIOENCODING: utf-8
         run: |
           out="$RUNNER_TEMP/inventory.json"
           if [ "$RUNNER_OS" = Windows ]; then

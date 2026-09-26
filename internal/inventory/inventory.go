@@ -101,6 +101,7 @@ func round1(v float64) float64 { return math.Round(v*10) / 10 }
 // Pseudo filesystems and OS-internal volumes that aren't storage anyone
 // manages: skipped by mount point.
 var skipMountPrefixes = []string{"/proc", "/sys", "/dev", "/run", "/snap", "/boot/efi", "/private/var/vm", "/System/Volumes/VM",
+	"/System/Library", "/Library/Developer", "/private/var/run", "/System/Volumes/Recovery",
 	"/System/Volumes/Preboot", "/System/Volumes/Update", "/System/Volumes/xarts", "/System/Volumes/iSCPreboot", "/System/Volumes/Hardware"}
 
 func skipMount(mount, filesystem string) bool {

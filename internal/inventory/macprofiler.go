@@ -77,7 +77,7 @@ func ParseMacProfiler(text string) Details {
 	if sw := first(doc["SPSoftwareDataType"]); sw != nil {
 		d.OS.Name = str(sw, "os_version") // "macOS 14.5 (23F79)"
 		d.OS.Kernel = strings.TrimPrefix(str(sw, "kernel_version"), "Darwin ")
-		if user := str(sw, "user_name"); user != "" {
+		if user := str(sw, "user_name"); user != "" && !strings.Contains(user, "(root)") {
 			d.Users.LoggedOn = []string{user}
 		}
 	}
@@ -139,7 +139,7 @@ func ParseMacProfiler(text string) Details {
 		if kind == "rotational" {
 			kind = "hdd"
 		}
-		if strings.Contains(strings.ToLower(name), "virtual") || strings.Contains(strings.ToLower(name), "vmware") {
+		if lower := strings.ToLower(name + " " + str(drive, "protocol")); strings.Contains(lower, "virtual") || strings.Contains(lower, "vmware") || strings.Contains(lower, "disk image") {
 			kind = "virtual"
 		}
 		d.Disks = append(d.Disks, PhysicalDisk{

@@ -440,10 +440,12 @@ func ParseWindowsReport(text string) Details {
 		sec.Antivirus = append(sec.Antivirus, Antivirus{Name: a.Name, Enabled: boolPtr(on), UpToDate: boolPtr(a.State&0xf0 == 0)})
 	}
 	if r.Defender != nil && (len(r.AV) == 0 || r.Defender.Enabled) {
-		anyEnabled = anyEnabled || r.Defender.Enabled
+		// Installed but without real-time protection isn't protecting.
+		on := r.Defender.Enabled && r.Defender.Realtime
+		anyEnabled = anyEnabled || on
 		// Defender signatures older than a week are out of date.
 		sec.Antivirus = append(sec.Antivirus, Antivirus{
-			Name: "Microsoft Defender Antivirus", Enabled: boolPtr(r.Defender.Enabled && r.Defender.Realtime),
+			Name: "Microsoft Defender Antivirus", Enabled: boolPtr(on),
 			UpToDate: boolPtr(r.Defender.SignatureAge <= 7), Version: r.Defender.Version,
 		})
 	}

@@ -323,8 +323,8 @@ func (d *Details) finish() {
 	d.CPU.Vendor = cleanText(d.CPU.Vendor, maxTextShort)
 
 	d.Memory.Modules = capList(filter(d.Memory.Modules, func(m *MemoryModule) bool {
-		m.Slot, m.Type, m.Manufacturer = cleanText(m.Slot, maxTextShort), cleanText(m.Type, 50), cleanText(m.Manufacturer, maxTextShort)
-		m.SerialNumber, m.PartNumber = realSerial(cleanText(m.SerialNumber, maxTextShort)), cleanText(m.PartNumber, maxTextShort)
+		m.Slot, m.Type, m.Manufacturer = cleanText(m.Slot, maxTextShort), noPlaceholder(cleanText(m.Type, 50)), noPlaceholder(cleanText(m.Manufacturer, maxTextShort))
+		m.SerialNumber, m.PartNumber = realSerial(cleanText(m.SerialNumber, maxTextShort)), realSerial(cleanText(m.PartNumber, maxTextShort))
 		return m.SizeMb > 0
 	}), maxModules)
 	d.Disks = capList(filter(d.Disks, func(x *PhysicalDisk) bool {
@@ -438,7 +438,7 @@ func (d *Details) finish() {
 		return d.Ports[i].Protocol < d.Ports[j].Protocol
 	})
 	d.Ports = capList(d.Ports, maxPorts)
-	d.ServerRoles = cleanList(d.ServerRoles, maxRoles)
+	d.ServerRoles = mergeRoles(d.ServerRoles)
 	d.VirtualMachines = capList(filter(d.VirtualMachines, func(g *Guest) bool {
 		g.Name, g.State, g.Image = cleanText(g.Name, maxTextShort), cleanText(g.State, 50), cleanText(g.Image, maxTextShort)
 		return g.Name != ""
@@ -497,6 +497,26 @@ func cleanText(s string, n int) string {
 	return strings.TrimSpace(s[:cut])
 }
 
+// mergeRoles drops a detected product that a role already names ("IIS"
+// when Windows lists "Web Server (IIS)").
+func mergeRoles(roles []string) []string {
+	roles = cleanList(roles, maxRoles)
+	out := []string{}
+	for i, r := range roles {
+		covered := false
+		for j, other := range roles {
+			if i != j && len(other) > len(r) && strings.Contains(strings.ToLower(other), strings.ToLower(r)) {
+				covered = true
+				break
+			}
+		}
+		if !covered {
+			out = append(out, r)
+		}
+	}
+	return out
+}
+
 // cleanList trims, drops empties and duplicates, and caps a string list.
 func cleanList(list []string, n int) []string {
 	out := []string{}
@@ -544,6 +564,13 @@ var placeholders = map[string]bool{
 	"chassis serial number": true, "base board serial number": true, "0123456789": true, "123456789": true,
 	"oem": true, "o.e.m.": true, "xxxxxxxxxxxx": true, "system version": true, "invalid": true,
 	"00000000-0000-0000-0000-000000000000": true, "ffffffff-ffff-ffff-ffff-ffffffffffff": true, "sernum": true,
+}
+
+func noPlaceholder(v string) string {
+	if isPlaceholder(v) {
+		return ""
+	}
+	return v
 }
 
 func isPlaceholder(v string) bool {

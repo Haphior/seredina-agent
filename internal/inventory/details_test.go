@@ -488,3 +488,30 @@ func contains(list []string, v string) bool {
 	}
 	return false
 }
+
+func TestRolesAndDefenderFromRealRunners(t *testing.T) {
+	// A GitHub Windows runner: IIS both as a Windows role and as a running
+	// W3SVC; Defender installed with real-time protection off.
+	d := ParseWindowsReport(`{"os":{"productType":3},"roles":["Web Server (IIS)","Hyper-V"],
+"services":[{"name":"W3SVC","state":"Running","mode":"Auto"},{"name":"vmms","state":"Running","mode":"Auto"}],
+"defender":{"enabled":true,"realtime":false,"signatureAge":0,"version":"4.18"},
+"memory":[{"slot":"M0001","size":1073741824,"type":0,"manufacturer":"Microsoft Corporation","part":"None"}]}`)
+	d.finish()
+	if !reflect.DeepEqual(d.ServerRoles, []string{"Web Server (IIS)", "Hyper-V"}) {
+		t.Fatalf("roles: %v", d.ServerRoles)
+	}
+	if *d.Security.Antivirus[0].Enabled || d.legacy().AntivirusStatus != "disabled" {
+		t.Fatalf("Defender without real-time protection is off: %+v", d.Security.Antivirus)
+	}
+	if d.Memory.Modules[0].PartNumber != "" {
+		t.Fatalf("part number %q", d.Memory.Modules[0].PartNumber)
+	}
+	// A macOS runner: placeholder memory type and maker, a disk image.
+	mac := ParseMacProfiler(`{"SPMemoryDataType":[{"SPMemoryDataType":"7 GB","dimm_manufacturer":"Unknown","dimm_type":"unknown"}],
+"SPStorageDataType":[{"mount_point":"/System/Library/AssetsV2/x/.AssetData","size_in_bytes":500000000},{"mount_point":"/","size_in_bytes":343000000000,"physical_drive":{"device_name":"Disk Image","protocol":"Disk Image"}}],
+"SPSoftwareDataType":[{"user_name":"System Administrator (root)"}]}`)
+	mac.finish()
+	if mac.Memory.Modules[0].Type != "" || mac.Memory.Modules[0].Manufacturer != "" || mac.Disks[0].Type != "virtual" || len(mac.Volumes) != 1 || len(mac.Users.LoggedOn) != 0 {
+		t.Fatalf("mac: %+v %+v %+v %+v", mac.Memory, mac.Disks, mac.Volumes, mac.Users)
+	}
+}

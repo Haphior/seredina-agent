@@ -7,7 +7,9 @@ import (
 )
 
 func collect() Details {
-	out, ok := sysinfo.RunTimeout(3*time.Minute, "powershell", "-NoProfile", "-NonInteractive", "-ExecutionPolicy", "Bypass", "-EncodedCommand", WindowsEncodedCommand())
+	// Usually about ten seconds; the first run after boot, loading the CIM
+	// and storage modules cold, can take two minutes.
+	out, ok := sysinfo.RunTimeout(5*time.Minute, "powershell", "-NoProfile", "-NonInteractive", "-ExecutionPolicy", "Bypass", "-EncodedCommand", WindowsEncodedCommand())
 	if !ok {
 		return ParseWindowsReport("")
 	}
