@@ -1,0 +1,36 @@
+name: Release
+
+# Push a tag like v0.1.0 to publish: six archives (Windows, macOS, Linux on
+# amd64/arm64), SHA256SUMS and the install scripts, on a GitHub release.
+on:
+  push:
+    tags: ["v*"]
+
+permissions:
+  contents: write
+
+jobs:
+  release:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-go@v5
+        with:
+          go-version-file: go.mod
+      - run: go test ./...
+      - name: Build
+        run: scripts/build.sh "$GITHUB_REF_NAME"
+      # Code signing goes here once certificates exist: sign the Windows .exe
+      # (signtool, from a secret-held certificate) and sign + notarize the
+      # macOS binaries (codesign + notarytool, on a macos runner) before
+      # scripts/build.sh archives them. Until then releases are unsigned.
+      - name: Add the install scripts
+        run: cp scripts/install.sh scripts/install.ps1 dist/
+      - name: Publish
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: |
+          prerelease=""
+          case "$GITHUB_REF_NAME" in *-*) prerelease="--prerelease" ;; esac
+          gh release create "$GITHUB_REF_NAME" dist/* --verify-tag --generate-notes $prerelease \
+            --title "Seredina agent $GITHUB_REF_NAME"
