@@ -78,15 +78,24 @@ type checkinResponse struct {
 		Created int `json:"created"`
 		Updated int `json:"updated"`
 	} `json:"neighbors"`
+	// "stored", or "rejected" with the reason when the server couldn't take
+	// the detailed inventory (the summary fields are stored either way).
+	// Servers older than the detailed inventory don't send it.
+	Inventory      string `json:"inventory"`
+	InventoryError string `json:"inventoryError"`
 }
 
 // CheckinResult summarizes one check-in for the log.
 type CheckinResult struct {
 	Hostname         string
 	Platform         string
+	Role             string
 	Packages         int
 	Neighbors        int
 	NeighborsCreated int
+	// InventoryRejected is the server's reason for not storing the detailed
+	// inventory, if it gave one.
+	InventoryRejected string
 }
 
 // Checkin sends the current inventory and ARP neighbors.
@@ -110,8 +119,14 @@ func Checkin(store Store) (CheckinResult, error) {
 		return CheckinResult{}, err
 	}
 	out := CheckinResult{Hostname: inv.Hostname, Platform: inv.Platform, Packages: len(inv.InstalledPackages), Neighbors: len(neighbors)}
+	if inv.Details != nil {
+		out.Role = inv.Details.System.Role
+	}
 	if res.Neighbors != nil {
 		out.NeighborsCreated = res.Neighbors.Created
+	}
+	if res.Inventory == "rejected" {
+		out.InventoryRejected = firstNonEmpty(res.InventoryError, "no reason given")
 	}
 	return out, nil
 }
@@ -127,7 +142,10 @@ func Run(ctx context.Context, store Store, interval time.Duration, logger *log.L
 		res, err := Checkin(store)
 		switch {
 		case err == nil:
-			logger.Printf("checked in: %s (%s), %d packages, %d neighbors (%d new)", res.Hostname, res.Platform, res.Packages, res.Neighbors, res.NeighborsCreated)
+			logger.Printf("checked in: %s (%s, %s), %d packages, %d neighbors (%d new)", res.Hostname, res.Platform, res.Role, res.Packages, res.Neighbors, res.NeighborsCreated)
+			if res.InventoryRejected != "" {
+				logger.Printf("the server kept the summary but not the detailed inventory: %s", res.InventoryRejected)
+			}
 		case isUnauthorized(err):
 			logger.Printf("check-in refused (401): this device's credential was revoked or the device was deleted. Enroll it again from the Devices page.")
 		default:
@@ -144,4 +162,13 @@ func Run(ctx context.Context, store Store, interval time.Duration, logger *log.L
 func isUnauthorized(err error) bool {
 	apiErr, ok := err.(*APIError)
 	return ok && apiErr.Status == 401
+}
+
+func firstNonEmpty(values ...string) string {
+	for _, v := range values {
+		if v != "" {
+			return v
+		}
+	}
+	return ""
 }

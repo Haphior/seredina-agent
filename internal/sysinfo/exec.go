@@ -5,6 +5,7 @@ package sysinfo
 
 import (
 	"context"
+	"errors"
 	"os"
 	"os/exec"
 	"strings"
@@ -21,15 +22,35 @@ const CommandTimeout = 30 * time.Second
 // best effort: a machine without lsblk still checks in, just without that
 // field.
 func Run(name string, args ...string) (string, bool) {
-	ctx, cancel := context.WithTimeout(context.Background(), CommandTimeout)
+	return RunTimeout(CommandTimeout, name, args...)
+}
+
+// RunTimeout is Run with its own time limit, for the few collectors that are
+// slow by nature (the Windows inventory script, macOS's system_profiler).
+func RunTimeout(timeout time.Duration, name string, args ...string) (string, bool) {
+	out, code, ok := RunExit(timeout, name, args...)
+	return out, ok && code == 0
+}
+
+// RunExit runs a command and also reports its exit code, for tools that
+// answer through it (`dnf check-update` exits 100 when updates are pending,
+// `needs-restarting -r` exits 1 when a reboot is). ok is false only when the
+// command is missing, can't start, or times out.
+func RunExit(timeout time.Duration, name string, args ...string) (out string, code int, ok bool) {
+	ctx, cancel := context.WithTimeout(context.Background(), timeout)
 	defer cancel()
 	cmd := exec.CommandContext(ctx, name, args...)
-	hideWindow(cmd)
-	out, err := cmd.Output()
-	if err != nil {
-		return "", false
+	prepare(cmd)
+	b, err := cmd.Output()
+	out = strings.TrimSpace(string(b))
+	if err == nil {
+		return out, 0, true
 	}
-	return strings.TrimSpace(string(out)), true
+	var exitErr *exec.ExitError
+	if errors.As(err, &exitErr) && ctx.Err() == nil {
+		return out, exitErr.ExitCode(), true
+	}
+	return out, -1, false
 }
 
 // ReadFirst returns the trimmed contents of the first readable, non-empty
@@ -45,6 +66,12 @@ func ReadFirst(paths ...string) (string, bool) {
 		}
 	}
 	return "", false
+}
+
+// Exists reports whether a path exists.
+func Exists(path string) bool {
+	_, err := os.Stat(path)
+	return err == nil
 }
 
 // Lines splits command output into lines, tolerating Windows line endings.

@@ -3,6 +3,7 @@
 package main
 
 import (
+	"encoding/json"
 	"errors"
 	"flag"
 	"fmt"
@@ -27,6 +28,7 @@ Usage:
   seredina-agent uninstall [--purge]         remove the service (--purge also deletes the credential)
   seredina-agent status                      is it enrolled, and is the service running?
   seredina-agent checkin                     send the inventory once, now
+  seredina-agent inventory [--out file.json] print the full inventory without sending it
   seredina-agent run [--interval 1h]         check in periodically in the foreground
   seredina-agent version
 
@@ -59,6 +61,8 @@ func dispatch(command string, args []string) error {
 		return cmdEnroll(args)
 	case "checkin":
 		return cmdCheckin(args)
+	case "inventory":
+		return cmdInventory(args)
 	case "run":
 		return cmdRun(args)
 	case "install":
@@ -157,8 +161,32 @@ func cmdCheckin(args []string) error {
 	if err != nil {
 		return err
 	}
-	fmt.Printf("Checked in: %s (%s), %d packages, %d neighbors (%d new)\n", res.Hostname, res.Platform, res.Packages, res.Neighbors, res.NeighborsCreated)
+	fmt.Printf("Checked in: %s (%s, %s), %d packages, %d neighbors (%d new)\n", res.Hostname, res.Platform, res.Role, res.Packages, res.Neighbors, res.NeighborsCreated)
+	if res.InventoryRejected != "" {
+		fmt.Fprintf(os.Stderr, "Warning: the server kept the summary but not the detailed inventory: %s\n", res.InventoryRejected)
+	}
 	return nil
+}
+
+// cmdInventory prints what a check-in would send, without enrolling or
+// contacting any server: for checking a machine, or attaching to a ticket.
+func cmdInventory(args []string) error {
+	fs := flag.NewFlagSet("inventory", flag.ContinueOnError)
+	out := fs.String("out", "", "write to this file instead of the screen")
+	if err := fs.Parse(args); err != nil {
+		return err
+	}
+	inv := inventory.Collect()
+	b, err := json.MarshalIndent(inv.Details, "", "  ")
+	if err != nil {
+		return err
+	}
+	b = append(b, '\n')
+	if *out != "" {
+		return os.WriteFile(*out, b, 0o600)
+	}
+	_, err = os.Stdout.Write(b)
+	return err
 }
 
 func cmdRun(args []string) error {

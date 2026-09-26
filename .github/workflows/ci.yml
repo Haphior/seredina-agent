@@ -2,7 +2,6 @@ name: CI
 
 on:
   push:
-    branches: [main]
   pull_request:
 
 permissions:
@@ -34,6 +33,24 @@ jobs:
           go build -o seredina-agent-test .
           ./seredina-agent-test version
           ./seredina-agent-test status --config-dir "$RUNNER_TEMP/none"
+      # The real inventory of each runner, collected as administrator/root
+      # like the service does, so reviewers can see every collector's output.
+      - name: Full inventory of this runner
+        shell: bash
+        run: |
+          out="$RUNNER_TEMP/inventory.json"
+          if [ "$RUNNER_OS" = Windows ]; then
+            ./seredina-agent-test inventory --out "$out"
+            python scripts/inventory-summary.py "$out"
+          else
+            sudo ./seredina-agent-test inventory --out "$out"
+            sudo chmod 644 "$out"
+            python3 scripts/inventory-summary.py "$out"
+          fi
+      - uses: actions/upload-artifact@v4
+        with:
+          name: inventory-${{ matrix.os }}
+          path: ${{ runner.temp }}/inventory.json
 
   release-build:
     runs-on: ubuntu-latest

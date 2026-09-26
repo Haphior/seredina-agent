@@ -14,7 +14,7 @@ import (
 )
 
 // MaxPackages caps the installed-software list; the server accepts up to 2000.
-const MaxPackages = 500
+const MaxPackages = 2000
 
 // Disk is one mounted volume.
 type Disk struct {
@@ -41,6 +41,9 @@ type Inventory struct {
 	DiskEncrypted     *bool     `json:"diskEncrypted,omitempty"`
 	AntivirusStatus   string    `json:"antivirusStatus,omitempty"`
 	InstalledPackages []Package `json:"installedPackages"`
+	// Details is the full inventory (schema 2). Servers that predate it
+	// ignore the field and keep using the summary fields above.
+	Details *Details `json:"inventory,omitempty"`
 }
 
 // Platform is the server's name for this OS. It keeps Node.js's names
@@ -62,9 +65,13 @@ func Hostname() string {
 	return h
 }
 
-// Collect gathers everything for one check-in.
+// Collect gathers everything for one check-in: the details, and the
+// summary fields derived from them.
 func Collect() Inventory {
-	inv := collect()
+	d := collect()
+	d.finish()
+	inv := d.legacy()
+	inv.Details = &d
 	inv.Hostname = Hostname()
 	inv.Platform = Platform()
 	if inv.DiskSummary == nil {

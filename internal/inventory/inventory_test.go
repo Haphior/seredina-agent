@@ -1,7 +1,9 @@
 package inventory
 
 import (
+	"encoding/json"
 	"reflect"
+	"strings"
 	"testing"
 )
 
@@ -61,48 +63,27 @@ func TestParseKeyValue(t *testing.T) {
 	}
 }
 
-func TestParseWindowsReport(t *testing.T) {
-	text := `{"cpu":"Intel(R) Core(TM) i5-10310U CPU @ 1.70GHz","memoryBytes":17179869184,"os":"Microsoft Windows 11 Pro 10.0.22631",
-"disks":[{"mount":"C:","size":510770802688,"free":214748364800},{"mount":"D:","size":0,"free":0}],
-"bitlocker":[0,1],"defender":true,
-"apps":[{"name":"Google Chrome","version":"129.0.6668.59"},{"name":"  ","version":""},{"name":"7-Zip 23.01 (x64)","version":""}]}`
-	got := ParseWindowsReport(text)
-	if got.CPUModel != "Intel(R) Core(TM) i5-10310U CPU @ 1.70GHz" || got.MemoryTotalMb != 16384 || got.OSVersion != "Microsoft Windows 11 Pro 10.0.22631" {
-		t.Fatalf("basics: %+v", got)
-	}
-	if !reflect.DeepEqual(got.DiskSummary, []Disk{{"C:", 475.7, 200.0}}) {
-		t.Fatalf("disks: %+v", got.DiskSummary)
-	}
-	if got.DiskEncrypted == nil || !*got.DiskEncrypted {
-		t.Fatal("one protected BitLocker volume should count as encrypted")
-	}
-	if got.AntivirusStatus != "enabled" {
-		t.Fatalf("antivirus: %q", got.AntivirusStatus)
-	}
-	if !reflect.DeepEqual(got.InstalledPackages, []Package{{"Google Chrome", "129.0.6668.59"}, {"7-Zip 23.01 (x64)", ""}}) {
-		t.Fatalf("apps: %+v", got.InstalledPackages)
-	}
-}
-
-func TestParseWindowsReportWithoutOptionalParts(t *testing.T) {
-	// Home editions have no BitLocker cmdlet; another antivirus replaces Defender.
-	got := ParseWindowsReport(`{"cpu":"x","memoryBytes":0,"os":"Windows 10 Home 10.0.19045"}`)
-	if got.DiskEncrypted != nil || got.AntivirusStatus != "unknown" {
-		t.Fatalf("got %+v", got)
-	}
-	if bad := ParseWindowsReport("not json"); bad.AntivirusStatus != "unknown" {
-		t.Fatalf("garbage should not panic: %+v", bad)
-	}
-}
-
 func TestCollectOnThisMachine(t *testing.T) {
 	inv := Collect()
-	if inv.Hostname == "" || inv.Platform == "" || inv.DiskSummary == nil || inv.InstalledPackages == nil {
+	if inv.Hostname == "" || inv.Platform == "" || inv.DiskSummary == nil || inv.InstalledPackages == nil || inv.Details == nil {
 		t.Fatalf("incomplete inventory: %+v", inv)
 	}
 	if len(inv.InstalledPackages) > MaxPackages {
 		t.Fatalf("%d packages, cap is %d", len(inv.InstalledPackages), MaxPackages)
 	}
-	t.Logf("%s %s | %s | %d MB | %d disks | %d packages | encrypted=%v | av=%s",
-		inv.Platform, inv.Hostname, inv.OSVersion, inv.MemoryTotalMb, len(inv.DiskSummary), len(inv.InstalledPackages), inv.DiskEncrypted, inv.AntivirusStatus)
+	d := inv.Details
+	if d.Schema != SchemaVersion || d.OS.Name == "" || d.CPU.Model == "" || d.Memory.TotalMb == 0 || d.System.Role == "" {
+		t.Fatalf("details missing basics: %+v", d)
+	}
+	// Every list is present, even empty, so the JSON has one shape.
+	b, _ := json.Marshal(d)
+	for _, key := range []string{`"disks":[`, `"volumes":[`, `"network":[`, `"software":[`, `"services":[`, `"ports":[`, `"agents":[`, `"installed":[`} {
+		if !strings.Contains(string(b), key) {
+			t.Errorf("%s missing from %s", key, b)
+		}
+	}
+	t.Logf("%s %s | %s | %s %s (%s, %s) | %s | %d MB, %d modules | %d disks, %d volumes | %d NICs | %d apps | %d services | %d ports | roles %v | %d guests | AV %v | agents %v | legacy AV %s, encrypted %v",
+		inv.Platform, inv.Hostname, d.OS.Name, d.System.Manufacturer, d.System.Model, d.System.FormFactor, d.System.Role, d.CPU.Model,
+		d.Memory.TotalMb, len(d.Memory.Modules), len(d.Disks), len(d.Volumes), len(d.Network), len(d.Software), len(d.Services), len(d.Ports),
+		d.ServerRoles, len(d.VirtualMachines), d.Security.Antivirus, d.Security.Agents, inv.AntivirusStatus, inv.DiskEncrypted)
 }
