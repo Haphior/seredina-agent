@@ -1,9 +1,18 @@
 # Seredina agent
 
 The endpoint agent for [Seredina](https://github.com/Haphior/helpdesk-seredina), the open-source helpdesk.
-It runs on a computer and reports what's in it to Seredina's CMDB. It
-reports hardware, disks, operating system, installed software, disk
-encryption, antivirus, and the devices it can see on its local network.
+It runs on a computer or a server and reports what's in it to Seredina's
+CMDB, about as much as GLPI-Agent or Lansweeper collect:
+
+- Hardware down to serial numbers, memory modules and disk models.
+- Software with publishers.
+- Updates.
+- Security: antivirus and EDR, disk encryption, firewall, Secure Boot,
+  TPM.
+- For servers: services, listening ports, roles, and the VMs and
+  containers they host.
+
+It also reports the devices it can see on its local network.
 
 It's one self-contained binary for Windows, macOS and Linux (x86-64 and
 ARM64), with no runtime to install. It runs as a Windows service, a
@@ -58,6 +67,7 @@ Download the archive for your platform from [Releases](https://github.com/Haphio
 | `uninstall [--purge]` | Removes the service. `--purge` also deletes the credential and the installed binary. |
 | `status` | Shows whether it's enrolled, to which server, and whether the service is running. |
 | `checkin` | Sends the inventory once, now. |
+| `inventory [--out file.json]` | Prints the full inventory as JSON without sending it anywhere. Run it as administrator/root to see everything the service sees. |
 | `run [--interval 1h]` | Checks in periodically in the foreground. |
 | `version` | Prints the version. |
 
@@ -86,20 +96,49 @@ operating system's trusted roots. HTTP proxies are honored through
 
 ## What is sent
 
-It sends only inventory, never files, documents or browsing data:
+It sends only inventory, never files, documents, browsing data or
+passwords. Run `seredina-agent inventory` to see exactly what it would
+send.
 
-- Hostname and platform.
-- CPU model, memory, disks (size and free space), and OS version.
-- Whether the system disk is encrypted:
-  - Windows: BitLocker.
-  - macOS: FileVault.
-  - Linux: LUKS.
-- Antivirus status (Windows: Defender).
-- Up to 500 installed packages or applications with their versions.
-- The primary MAC address.
-- The IP and MAC of up to 512 neighbors in the ARP table.
+| Part | Windows | macOS | Linux |
+|---|---|---|---|
+| System: manufacturer, model, serial, UUID, BIOS, form factor, virtualization, domain | CIM (Win32_ComputerSystem, BIOS, enclosure) | system_profiler | /sys/class/dmi, systemd-detect-virt, realm |
+| OS: version, build, install date, last boot, pending reboot | CIM, registry | sw_vers, sysctl | os-release, /proc/stat, needs-restarting |
+| CPU sockets/cores/threads, memory modules (slot, size, type, speed, serial, part number) | Win32_Processor, Win32_PhysicalMemory | system_profiler, sysctl | lscpu, dmidecode |
+| Physical disks (SSD/HDD/NVMe, bus, serial, health) and volumes (filesystem, free space, encryption) | Get-PhysicalDisk, BitLocker | system_profiler, FileVault | lsblk, df, LUKS |
+| Network adapters: MAC, IPs, gateway, DNS, DHCP, speed | Win32_NetworkAdapterConfiguration | Go, networksetup, scutil | Go, /sys/class/net, /proc/net/route |
+| GPUs, monitors (with serial), batteries (health, cycles), printers | CIM, WmiMonitorID | system_profiler | lspci, EDID, /sys/class/power_supply, CUPS |
+| Users: logged on, last logon, local administrators, local accounts | CIM, LogonUI | who, dscl | who, last, /etc/group |
+| Security: antivirus and its state, EDR/security agents running, firewall, Secure Boot, TPM, UAC/SELinux/AppArmor/Gatekeeper/SIP | SecurityCenter2, Defender, NetFirewall | XProtect, socketfilterfw, spctl, csrutil | ufw/firewalld/nftables, getenforce, efivars |
+| Software with version, publisher, install date, architecture | Uninstall registry keys (machine and per-user) | Applications, with signer as publisher | dpkg, rpm, pacman, apk, snap, flatpak |
+| Updates: installed and pending | Get-HotFix | softwareupdate --history | apt, dnf/yum (local cache only) |
+| Services, listening ports with process | Win32_Service, Get-NetTCPConnection | launchctl, lsof | systemctl, ss |
+| Server roles and hosted guests | Get-WindowsFeature, Hyper-V | Docker | recognized services, libvirt, Proxmox, Docker, Podman |
 
-It also sends a machine fingerprint, which is the SHA-256 of the OS machine ID, so a reinstalled agent finds the same record.
+It also sends:
+
+- The primary MAC address, and the IP and MAC of up to 512 neighbors in
+  the ARP table.
+- A machine fingerprint (the SHA-256 of the OS machine ID), so a
+  reinstalled agent finds the same record.
+
+Every list is capped (2,000 programs, 1,000 services, 500 ports...), and
+every text field is trimmed. The agent never refreshes package
+repositories or downloads updates: pending updates come from the package
+manager's local cache.
+
+The summary fields Seredina's older servers read (CPU model, memory,
+disks, OS version, encryption, antivirus, packages) are still sent,
+derived from the same data.
+
+### Servers
+
+The agent is the same on servers: Windows Server 2012 or later, and any
+Linux with systemd. Seredina files a machine as a server when the agent
+reports its role as one:
+
+- **Windows:** the Server editions.
+- **Linux:** a machine without a graphical session.
 
 ## Build from source
 
@@ -136,16 +175,23 @@ Signing hooks are marked in `scripts/build.sh` and in `.github/workflows/release
 
 ## En español
 
-El agente de Seredina informa el inventario de un equipo a la CMDB de
-Seredina. Informa:
+El agente de Seredina informa el inventario de un equipo o un servidor a
+la CMDB de Seredina, con un nivel de detalle similar al de GLPI-Agent o
+Lansweeper:
 
-- Hardware, discos y sistema operativo.
-- Software instalado.
-- Cifrado de disco y antivirus.
-- Los equipos vecinos de su red local.
+- Hardware hasta el número de serie, los módulos de memoria y el modelo
+  de cada disco.
+- Software con su fabricante.
+- Actualizaciones.
+- Seguridad: antivirus y EDR, cifrado, firewall, Secure Boot, TPM.
+- En servidores: servicios, puertos en escucha, roles, y las VMs y
+  contenedores que aloja.
 
-Es un solo ejecutable para Windows, macOS y Linux. Funciona como servicio
-y hace check-in cada hora.
+También informa los equipos vecinos de su red local.
+
+Es un solo ejecutable para Windows, macOS y Linux, y funciona igual en
+servidores (Windows Server 2012 o posterior, y Linux con systemd). Corre
+como servicio y hace check-in cada hora.
 
 **Instalación:** en Seredina, ve a **Dispositivos → Inscribir un
 dispositivo** y copia el comando para tu sistema:
@@ -164,6 +210,9 @@ El script:
 
 - `seredina-agent status`: si está inscrito y si el servicio corre.
 - `seredina-agent checkin`: envía el inventario ahora.
+- `seredina-agent inventory`: muestra el inventario completo en JSON, sin
+  enviarlo. Ejecútalo como administrador para ver todo lo que ve el
+  servicio.
 - `seredina-agent uninstall --purge`: quita el servicio y la credencial.
 
 **Certificados internos:** si tu servidor usa una CA interna, el comando
