@@ -67,6 +67,7 @@ Download the archive for your platform from [Releases](https://github.com/Haphio
 | `uninstall [--purge]` | Removes the service. `--purge` also deletes the credential and the installed binary. |
 | `status` | Shows whether it's enrolled, to which server, and whether the service is running. |
 | `checkin` | Sends the inventory once, now. |
+| `update [--check] [--version vX.Y.Z] [--download-base URL]` | Updates the installed agent to the latest release (or the one given), keeping its enrollment and check-in interval. `--check` only says whether there's a newer one. Needs admin. |
 | `inventory [--out file.json]` | Prints the full inventory as JSON without sending it anywhere. Run it as administrator/root to see everything the service sees. |
 | `run [--interval 1h]` | Checks in periodically in the foreground. |
 | `version` | Prints the version. |
@@ -81,8 +82,74 @@ Every command takes `--config-dir DIR`. The credential is kept in:
 
 The `SEREDINA_AGENT_CONFIG_DIR` environment variable overrides the default.
 
-To update the agent, run the install command again. A new enrollment
-token for the same computer reuses its existing record in Seredina.
+## Updating
+
+The agent doesn't update itself. You choose when, and no enrollment token
+is needed: the computer keeps its enrollment, its pinned CA and its
+check-in interval.
+
+On one computer, as administrator/root:
+
+```sh
+seredina-agent update --check    # is there a newer release?
+seredina-agent update            # install it
+```
+
+On Windows the agent lives in `C:\Program Files\Seredina Agent\seredina-agent.exe`.
+
+`update` does the following:
+
+1. Reads the release's `VERSION`, and stops if the agent is already on it.
+2. Downloads the archive for this OS and architecture.
+3. Checks it against `SHA256SUMS`.
+4. Has the new binary reinstall the service.
+
+A failed download or checksum leaves the installed agent untouched.
+
+For computers with a broken or very old agent, the install scripts do the
+same with `--update` (`-Update` on Windows):
+
+```sh
+curl -fsSL https://github.com/Haphior/seredina-agent/releases/latest/download/install.sh | sudo sh -s -- --update
+```
+
+```powershell
+& ([scriptblock]::Create((irm https://github.com/Haphior/seredina-agent/releases/latest/download/install.ps1))) -Update
+```
+
+### Many computers at once
+
+Run the update from the tool you already manage computers with, as
+SYSTEM or root:
+
+- **Intune:** a platform script.
+- **GPO:** a startup script.
+- **Jamf:** a policy.
+- **Ansible:** a task.
+
+For example, on Windows:
+
+```powershell
+& "$env:ProgramFiles\Seredina Agent\seredina-agent.exe" update
+```
+
+It's safe to run on a schedule: it does nothing when the agent is
+already current. Updating on your own schedule is deliberate. Because the
+releases aren't code-signed yet, you choose when a new version runs on
+your fleet.
+
+To pin a version, pass `--version v0.3.0`. If your computers can't
+reach GitHub:
+
+1. Copy a release's files (including `VERSION`) to an internal web server.
+2. Pass `--download-base https://files.example.com/seredina-agent`.
+
+A mirror behind the same internal CA as your Seredina server is trusted
+automatically.
+
+Agent and server versions don't have to match. A newer agent works with
+an older Seredina, which ignores the fields it doesn't know, and an
+older agent works with a newer Seredina.
 
 ## Private certificates
 
@@ -210,6 +277,10 @@ El script:
 
 - `seredina-agent status`: si está inscrito y si el servicio corre.
 - `seredina-agent checkin`: envía el inventario ahora.
+- `seredina-agent update`: actualiza el agente a la última versión, sin
+  token, conservando la inscripción y el intervalo. `--check` solo avisa
+  si hay una versión nueva. Para muchos equipos, ejecútalo desde Intune,
+  GPO, Jamf o Ansible; no hace nada si ya está al día.
 - `seredina-agent inventory`: muestra el inventario completo en JSON, sin
   enviarlo. Ejecútalo como administrador para ver todo lo que ve el
   servicio.

@@ -4,13 +4,19 @@ Installs the Seredina agent on Windows: downloads the release for this
 architecture, checks its SHA-256, enrolls the computer and starts the service.
 
 .EXAMPLE
+To update an enrolled computer (no token needed; it keeps its enrollment and check-in interval):
+
+& ([scriptblock]::Create((irm https://github.com/Haphior/seredina-agent/releases/latest/download/install.ps1))) -Update
+
+.EXAMPLE
 Run in PowerShell as administrator:
 
 & ([scriptblock]::Create((irm https://github.com/Haphior/seredina-agent/releases/latest/download/install.ps1))) -Url https://helpdesk.example.com/api -Token <token>
 #>
 param(
-    [Parameter(Mandatory = $true)][string]$Url,
-    [Parameter(Mandatory = $true)][string]$Token,
+    [string]$Url = "",
+    [string]$Token = "",
+    [switch]$Update,
     [string]$CaPem = "",
     [string]$Version = "latest",
     [string]$Interval = "",
@@ -19,6 +25,9 @@ param(
 )
 
 $ErrorActionPreference = "Stop"
+if (-not $Update -and (-not $Url -or -not $Token)) {
+    throw "Usage: install.ps1 -Url <server> -Token <token> [-CaPem <base64>], or install.ps1 -Update"
+}
 $ProgressPreference = "SilentlyContinue"  # Invoke-WebRequest is much faster without it
 $repo = "Haphior/seredina-agent"
 
@@ -68,8 +77,13 @@ try {
     $exe = "$tmp\seredina-agent.exe"
     Unblock-File $exe
 
-    $agentArgs = @("enroll", "--url", $Url, "--token", $Token, "--install")
-    if ($CaPem) { $agentArgs += @("--ca-pem", $CaPem) }
+    if ($Update) {
+        # Reuses the stored credential; the saved interval is kept unless given.
+        $agentArgs = @("install")
+    } else {
+        $agentArgs = @("enroll", "--url", $Url, "--token", $Token, "--install")
+        if ($CaPem) { $agentArgs += @("--ca-pem", $CaPem) }
+    }
     if ($Interval) { $agentArgs += @("--interval", $Interval) }
     # enroll --install copies the binary to Program Files and starts the service.
     & $exe @agentArgs

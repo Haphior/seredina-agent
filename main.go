@@ -9,12 +9,15 @@ import (
 	"fmt"
 	"io"
 	"os"
+	"os/exec"
+	"runtime"
 	"strconv"
 	"time"
 
 	"github.com/Haphior/seredina-agent/internal/agent"
 	"github.com/Haphior/seredina-agent/internal/inventory"
 	"github.com/Haphior/seredina-agent/internal/svc"
+	"github.com/Haphior/seredina-agent/internal/update"
 )
 
 // version is set at build time: -ldflags "-X main.version=v1.2.3".
@@ -29,6 +32,7 @@ Usage:
   seredina-agent status                      is it enrolled, and is the service running?
   seredina-agent checkin                     send the inventory once, now
   seredina-agent inventory [--out file.json] print the full inventory without sending it
+  seredina-agent update [--check] [--version vX.Y.Z]  update to the latest release (needs admin)
   seredina-agent run [--interval 1h]         check in periodically in the foreground
   seredina-agent version
 
@@ -63,6 +67,8 @@ func dispatch(command string, args []string) error {
 		return cmdCheckin(args)
 	case "inventory":
 		return cmdInventory(args)
+	case "update":
+		return cmdUpdate(args)
 	case "run":
 		return cmdRun(args)
 	case "install":
@@ -107,6 +113,23 @@ func (i *interval) Set(v string) error {
 	return nil
 }
 
+// savedInterval keeps the interval the service was installed with when the
+// command line doesn't set one, so reinstalling or updating never resets a
+// custom schedule to the default.
+func savedInterval(fs *flag.FlagSet, every *interval, store agent.Store) {
+	set := false
+	fs.Visit(func(f *flag.Flag) {
+		if f.Name == "interval" {
+			set = true
+		}
+	})
+	if !set {
+		if d, ok := store.LoadInterval(); ok {
+			every.d = d
+		}
+	}
+}
+
 func cmdEnroll(args []string) error {
 	fs, dir := newFlags("enroll")
 	url := fs.String("url", "", "the server address from the Devices page")
@@ -144,6 +167,7 @@ func cmdEnroll(args []string) error {
 		fmt.Printf("Enrolled. Credential saved to %s\n", store.CredentialsPath())
 	}
 	if *install {
+		savedInterval(fs, every, store)
 		if err := svc.Install(store, every.d); err != nil {
 			return err
 		}
@@ -189,6 +213,73 @@ func cmdInventory(args []string) error {
 	return err
 }
 
+// cmdUpdate replaces the installed agent with a newer release, keeping its
+// enrollment, pinned CA and check-in interval: no enrollment token needed.
+// The downloaded archive is checked against the release's SHA256SUMS, then
+// the new binary installs itself the way a fresh install does.
+func cmdUpdate(args []string) error {
+	fs, dir := newFlags("update")
+	wanted := fs.String("version", "", "install this release (e.g. v0.3.0) instead of the latest")
+	base := fs.String("download-base", "", "download from this mirror of the release files instead of GitHub")
+	check := fs.Bool("check", false, "only say whether a newer release is available")
+	force := fs.Bool("force", false, "reinstall even if this version is already installed")
+	if err := fs.Parse(args); err != nil {
+		return err
+	}
+	store := agent.Store{Dir: agent.DefaultDir(*dir)}
+	_, ca, err := store.Load()
+	if err != nil {
+		return err
+	}
+	src := update.Source{Version: *wanted, Base: *base, ExtraCA: ca}
+	available, err := src.AvailableVersion()
+	if err != nil {
+		return fmt.Errorf("could not check for updates: %w", err)
+	}
+	if available == "" && *wanted != "" {
+		available = *wanted
+	}
+	switch {
+	case available != "" && available == version && !*force:
+		fmt.Printf("Already up to date (%s).\n", version)
+		return nil
+	case *check && available == "":
+		fmt.Printf("Installed: %s. The release doesn't say its version; run update to install it anyway.\n", version)
+		return nil
+	case *check:
+		fmt.Printf("Installed: %s. Available: %s.\n", version, available)
+		return nil
+	}
+	if !agent.IsAdmin() {
+		return errors.New("updating needs administrator rights: run it from an elevated prompt (Windows) or with sudo (macOS/Linux)")
+	}
+
+	tmp, err := os.MkdirTemp("", "seredina-agent-update-")
+	if err != nil {
+		return err
+	}
+	defer os.RemoveAll(tmp)
+	fmt.Printf("Downloading %s from %s...\n", update.ArchiveName(runtime.GOOS, runtime.GOARCH), src.BaseURL())
+	bin, err := src.Download(tmp)
+	if err != nil {
+		return err
+	}
+	every := agent.DefaultInterval
+	if d, ok := store.LoadInterval(); ok {
+		every = d
+	}
+	cmd := exec.Command(bin, "install", "--config-dir", store.Dir, "--interval", every.String())
+	cmd.Stdout, cmd.Stderr = os.Stdout, os.Stderr
+	if err := cmd.Run(); err != nil {
+		return fmt.Errorf("the new version could not install itself: %w", err)
+	}
+	if available == "" {
+		available = "the latest release"
+	}
+	fmt.Printf("Updated from %s to %s.\n", version, available)
+	return nil
+}
+
 func cmdRun(args []string) error {
 	fs, dir := newFlags("run")
 	every := &interval{agent.DefaultInterval}
@@ -214,6 +305,7 @@ func cmdInstall(args []string) error {
 		return err
 	}
 	store := agent.Store{Dir: agent.DefaultDir(*dir)}
+	savedInterval(fs, every, store)
 	if err := svc.Install(store, every.d); err != nil {
 		return err
 	}

@@ -27,4 +27,6 @@ for target in $targets; do
   rm -rf "$work"
 done
 (cd dist && sha256sum seredina-agent_* > SHA256SUMS)
+# `seredina-agent update` reads this to tell whether it's already current.
+echo "$version" > dist/VERSION
 cat dist/SHA256SUMS

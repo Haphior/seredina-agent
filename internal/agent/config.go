@@ -7,6 +7,7 @@ import (
 	"os"
 	"path/filepath"
 	"runtime"
+	"time"
 )
 
 // Credentials is what enrollment leaves on disk: the server address and this
@@ -144,4 +145,37 @@ func writePrivate(path string, data []byte) error {
 		return err
 	}
 	return os.Chmod(path, 0o600)
+}
+
+const settingsFile = "service.json"
+
+type serviceSettings struct {
+	Interval string `json:"interval"`
+}
+
+// SaveInterval remembers the check-in interval the service was installed
+// with, so an update or a reinstall keeps it.
+func (s Store) SaveInterval(d time.Duration) error {
+	b, err := json.Marshal(serviceSettings{Interval: d.String()})
+	if err != nil {
+		return err
+	}
+	return writePrivate(s.path(settingsFile), b)
+}
+
+// LoadInterval returns the interval saved by SaveInterval, if any.
+func (s Store) LoadInterval() (time.Duration, bool) {
+	b, err := os.ReadFile(s.path(settingsFile))
+	if err != nil {
+		return 0, false
+	}
+	var st serviceSettings
+	if json.Unmarshal(b, &st) != nil {
+		return 0, false
+	}
+	d, err := time.ParseDuration(st.Interval)
+	if err != nil || d < time.Minute {
+		return 0, false
+	}
+	return d, true
 }

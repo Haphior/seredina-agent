@@ -208,3 +208,16 @@ func selfSigned(t *testing.T) tls.Certificate {
 	}
 	return tls.Certificate{Certificate: [][]byte{der}, PrivateKey: key}
 }
+
+func TestIntervalIsRemembered(t *testing.T) {
+	store := Store{Dir: t.TempDir()}
+	if _, ok := store.LoadInterval(); ok {
+		t.Fatal("nothing saved yet")
+	}
+	if err := store.SaveInterval(30 * time.Minute); err != nil {
+		t.Fatal(err)
+	}
+	if d, ok := store.LoadInterval(); !ok || d != 30*time.Minute {
+		t.Fatalf("%v %v", d, ok)
+	}
+}

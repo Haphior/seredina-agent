@@ -6,13 +6,18 @@
 #   curl -fsSL https://github.com/Haphior/seredina-agent/releases/latest/download/install.sh \
 #     | sudo sh -s -- --url https://helpdesk.example.com/api --token <token> [--ca-pem <base64>]
 #
+# To update an enrolled computer (no token needed; it keeps its enrollment
+# and check-in interval):
+#
+#   curl -fsSL https://github.com/Haphior/seredina-agent/releases/latest/download/install.sh | sudo sh -s -- --update
+#
 # Options: --version vX.Y.Z pins a release (default: latest);
 #          --interval 1h sets the check-in interval;
 #          --download-base URL fetches the archives from a mirror instead of GitHub.
 set -eu
 
 repo="Haphior/seredina-agent"
-url="" token="" ca_pem="" version="latest" interval="" base=""
+url="" token="" ca_pem="" version="latest" interval="" base="" update=""
 
 die() { echo "seredina-agent install: $*" >&2; exit 1; }
 
@@ -24,10 +29,11 @@ while [ $# -gt 0 ]; do
     --version) version="${2:-}"; shift 2 ;;
     --interval) interval="${2:-}"; shift 2 ;;
     --download-base) base="${2:-}"; shift 2 ;;
+    --update) update=1; shift ;;
     *) die "unknown option $1" ;;
   esac
 done
-[ -n "$url" ] && [ -n "$token" ] || die "usage: install.sh --url <server> --token <token> [--ca-pem <base64>]"
+[ -n "$update" ] || { [ -n "$url" ] && [ -n "$token" ]; } || die "usage: install.sh --url <server> --token <token> [--ca-pem <base64>], or install.sh --update"
 [ "$(id -u)" = 0 ] || die "run it as root (sudo)"
 
 case "$(uname -s)" in
@@ -77,10 +83,15 @@ expected="$(awk -v f="$archive" '$2 == f || $2 == "*" f { print $1 }' "$tmp/SHA2
 tar -xzf "$tmp/$archive" -C "$tmp" seredina-agent
 chmod 755 "$tmp/seredina-agent"
 
-set -- enroll --url "$url" --token "$token" --install
-[ -n "$ca_pem" ] && set -- "$@" --ca-pem "$ca_pem"
+if [ -n "$update" ]; then
+  # Reuses the stored credential; the saved interval is kept unless given.
+  set -- install
+else
+  set -- enroll --url "$url" --token "$token" --install
+  [ -n "$ca_pem" ] && set -- "$@" --ca-pem "$ca_pem"
+fi
 [ -n "$interval" ] && set -- "$@" --interval "$interval"
-# enroll --install copies the binary to /usr/local/bin and starts the service.
+# Both copy the binary to /usr/local/bin and (re)start the service.
 "$tmp/seredina-agent" "$@"
 
 echo "Done. Check it with: seredina-agent status"

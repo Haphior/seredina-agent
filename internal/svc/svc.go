@@ -119,6 +119,11 @@ func Install(store agent.Store, interval time.Duration) error {
 	if err := s.Install(); err != nil {
 		return err
 	}
+	// Remembered so `update` (and a later `install` without --interval)
+	// keeps the same schedule.
+	if err := store.SaveInterval(interval); err != nil {
+		return err
+	}
 	return s.Start()
 }
 

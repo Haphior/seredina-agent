@@ -49,6 +49,17 @@ jobs:
             sudo chmod 644 "$out"
             python3 scripts/inventory-summary.py "$out"
           fi
+      # Installs, updates and removes the real service on each runner.
+      - name: Update end to end (service install, update, already current)
+        shell: bash
+        run: scripts/ci-update-test.sh
+      - name: install.ps1 parses
+        if: runner.os == 'Windows'
+        shell: pwsh
+        run: |
+          $errors = $null
+          [System.Management.Automation.Language.Parser]::ParseFile("$PWD/scripts/install.ps1", [ref]$null, [ref]$errors) | Out-Null
+          if ($errors) { $errors; exit 1 }
       - uses: actions/upload-artifact@v7
         with:
           name: inventory-${{ matrix.os }}
