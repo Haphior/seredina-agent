@@ -161,3 +161,36 @@ func TestExtractZip(t *testing.T) {
 		t.Fatal("missing file is an error")
 	}
 }
+
+func TestLocalFolder(t *testing.T) {
+	// A release copied to a folder or network share, for offline computers.
+	dir := t.TempDir()
+	binary := []byte("new agent")
+	name := ArchiveName(runtime.GOOS, runtime.GOARCH)
+	var archive []byte
+	if runtime.GOOS == "windows" {
+		archive = zipped(t, "seredina-agent.exe", binary)
+	} else {
+		archive = tarGz(t, "seredina-agent", binary)
+	}
+	sum := sha256.Sum256(archive)
+	os.WriteFile(dir+"/"+name, archive, 0o644)
+	os.WriteFile(dir+"/SHA256SUMS", []byte(hex.EncodeToString(sum[:])+"  "+name+"\n"), 0o644)
+	for _, base := range []string{dir, "file://" + dir} {
+		src := Source{Base: base}
+		if v, err := src.AvailableVersion(); err != nil || v != "" {
+			t.Fatalf("%s: no VERSION file means unknown, got %q %v", base, v, err)
+		}
+		path, err := src.Download(t.TempDir())
+		if err != nil {
+			t.Fatalf("%s: %v", base, err)
+		}
+		if got, _ := os.ReadFile(path); !bytes.Equal(got, binary) {
+			t.Fatalf("%s: extracted %q", base, got)
+		}
+	}
+	os.WriteFile(dir+"/VERSION", []byte("v9.9.9\n"), 0o644)
+	if v, _ := (Source{Base: dir}).AvailableVersion(); v != "v9.9.9" {
+		t.Fatalf("version %q", v)
+	}
+}

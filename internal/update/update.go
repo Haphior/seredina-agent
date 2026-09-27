@@ -36,8 +36,10 @@ const maxArchive = 100 << 20
 type Source struct {
 	// Version to fetch ("v0.3.0"), or "" for the latest release.
 	Version string
-	// Base overrides the download folder, for an internal mirror holding a
-	// copy of a release's files.
+	// Base overrides the download folder, for an internal copy of a
+	// release's files: a web address, or a local folder or network share
+	// (/mnt/agent, \\server\share\agent, file:///...) for computers
+	// without internet access.
 	Base string
 	// ExtraCA is added to the system's trusted roots, so a mirror behind the
 	// same internal CA as the Seredina server is trusted too.
@@ -48,6 +50,9 @@ type Source struct {
 func (s Source) BaseURL() string {
 	switch {
 	case s.Base != "":
+		if dir, ok := s.localDir(); ok {
+			return dir
+		}
 		return strings.TrimRight(s.Base, "/")
 	case s.Version == "" || s.Version == "latest":
 		return Releases + "/latest/download"
@@ -77,7 +82,37 @@ func (s Source) client() (*http.Client, error) {
 	return &http.Client{Transport: transport, Timeout: 5 * time.Minute}, nil
 }
 
+// localDir is the folder Base names, when it's a path rather than a URL.
+func (s Source) localDir() (string, bool) {
+	if strings.HasPrefix(s.Base, "file://") {
+		return strings.TrimPrefix(s.Base, "file://"), true
+	}
+	if s.Base != "" && !strings.Contains(s.Base, "://") {
+		return s.Base, true
+	}
+	return "", false
+}
+
 func (s Source) get(name string, limit int64) ([]byte, error) {
+	if dir, ok := s.localDir(); ok {
+		path := filepath.Join(dir, name)
+		f, err := os.Open(path)
+		if errors.Is(err, os.ErrNotExist) {
+			return nil, fmt.Errorf("%s: %w", path, errNotFound)
+		}
+		if err != nil {
+			return nil, err
+		}
+		defer f.Close()
+		b, err := io.ReadAll(io.LimitReader(f, limit+1))
+		if err != nil {
+			return nil, err
+		}
+		if int64(len(b)) > limit {
+			return nil, fmt.Errorf("%s is larger than expected", path)
+		}
+		return b, nil
+	}
 	c, err := s.client()
 	if err != nil {
 		return nil, err

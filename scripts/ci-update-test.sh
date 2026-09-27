@@ -45,16 +45,15 @@ EOF
 # An enrolled agent: the server is unreachable, which the service survives.
 printf '{"url":"https://127.0.0.1:9/api","credential":"ci"}' > "$cfg/credentials.json"
 
-"$py" -m http.server 8765 --bind 127.0.0.1 --directory "$rel" >/dev/null 2>&1 &
-server=$!
 cleanup() {
-  kill "$server" 2>/dev/null || true
   $sudo "$installed" uninstall --purge --config-dir "$cfg_native" >/dev/null 2>&1 || true
 }
 trap cleanup EXIT
-sleep 2
 
-base="http://127.0.0.1:8765"
+# The release is read from a folder, as from a network share. (Downloads
+# over HTTPS are covered by the Go tests.)
+base="$rel"
+[ "$goos" = windows ] && base="$(cygpath -w "$rel")"
 check="$($sudo "$work/old$exe" update --check --config-dir "$cfg_native" --download-base "$base")"
 echo "$check"
 grep -q "Available: v0.0.2-ci" <<<"$check"

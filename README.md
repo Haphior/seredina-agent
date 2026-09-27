@@ -141,11 +141,15 @@ your fleet.
 To pin a version, pass `--version v0.3.0`. If your computers can't
 reach GitHub:
 
-1. Copy a release's files (including `VERSION`) to an internal web server.
-2. Pass `--download-base https://files.example.com/seredina-agent`.
+1. Copy a release's files (including `VERSION`) to an internal web server
+   or a network share.
+2. Pass `--download-base` with the web address
+   (`https://files.example.com/seredina-agent`) or the folder
+   (`\\fileserver\it\seredina-agent`, `/mnt/it/seredina-agent`).
 
-A mirror behind the same internal CA as your Seredina server is trusted
-automatically.
+A web mirror behind the same internal CA as your Seredina server is
+trusted automatically. Wherever the files come from, the archive must
+match `SHA256SUMS` before anything runs.
 
 Agent and server versions don't have to match. A newer agent works with
 an older Seredina, which ignores the fields it doesn't know, and an
